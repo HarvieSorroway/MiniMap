@@ -129,6 +129,7 @@ namespace MiniMap
             Plugin.Log("hud clearsprites");
             if(texture != null)texture.RemoveFromContainer();
             base.ClearSprites();
+            instance = null;
         }
     }
 }

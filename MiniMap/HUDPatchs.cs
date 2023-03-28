@@ -25,6 +25,7 @@ namespace MiniMap
                 Plugin.Log("HUD_ResetMap readd HUD");
                 self.AddPart(new MiniMapHUD(self));
             }
+
             else MiniMapHUD.instance.ReleaseRT();
             orig.Invoke(self, mapData);
             MiniMapHUD.instance.TrySetRT();
@@ -33,19 +34,19 @@ namespace MiniMap
         private static void HUD_InitMultiplayerHud(On.HUD.HUD.orig_InitMultiplayerHud orig, HUD.HUD self, ArenaGameSession session)
         {
             orig.Invoke(self, session);
-            self.AddPart(new MiniMapHUD(self));
+            if (MiniMapHUD.instance == null) self.AddPart(new MiniMapHUD(self));
         }
 
         private static void HUD_InitSinglePlayerHud(On.HUD.HUD.orig_InitSinglePlayerHud orig, HUD.HUD self, RoomCamera cam)
         {
             orig.Invoke(self, cam);
-            self.AddPart(new MiniMapHUD(self));
+            if (MiniMapHUD.instance == null) self.AddPart(new MiniMapHUD(self));
         }
 
         private static void HUD_InitSafariHud(On.HUD.HUD.orig_InitSafariHud orig, HUD.HUD self, RoomCamera cam)
         {
             orig.Invoke(self, cam);
-            self.AddPart(new MiniMapHUD(self));
+            if (MiniMapHUD.instance == null) self.AddPart(new MiniMapHUD(self));
         }
     }
 }

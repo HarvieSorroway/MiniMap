@@ -29,10 +29,37 @@ namespace MiniMap
             On.HUD.Map.Update += Map_Update;
             On.HUD.Map.ResetReveal += Map_ResetReveal;
             On.HUD.Map.ClearSprites += Map_ClearSprites;
+            On.HUD.Map.RoomToMapPos += Map_RoomToMapPos;
 
             Hook mapContainerHook = new Hook(typeof(HUD.Map).GetProperty("container", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance).GetGetMethod(),
                 typeof(MapPatchs).GetMethod("Map_Get_container", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                 );
+        }
+
+        private static Vector2 Map_RoomToMapPos(On.HUD.Map.orig_RoomToMapPos orig, Map self, Vector2 pos, int room, float timeStacker)
+        {
+            Vector2 result = orig.Invoke(self, pos, room, timeStacker);
+            if(mapModules.TryGetValue(self,out var module))
+            {
+                Vector2 vector = self.mapData.PositionOfRoom(room) / 3f + new Vector2(10f, 10f);
+                Vector2 vector2 = pos - new Vector2((float)self.mapData.SizeOfRoom(room).x * 20f, (float)self.mapData.SizeOfRoom(room).y * 20f) / 2f;
+                Vector2 vector3 = vector + vector2 / 20f;
+                vector3 -= Vector2.Lerp(self.lastPanPos, self.panPos, timeStacker);
+                vector3 *= self.MapScale;
+                vector3.x += self.hud.rainWorld.screenSize.x / 2f;
+                vector3.y += self.hud.rainWorld.screenSize.y / 2f;
+
+                Vector2 vector4 = new Vector2(Mathf.InverseLerp(0f, self.hud.rainWorld.screenSize.x, vector3.x), Mathf.InverseLerp(0f, self.hud.rainWorld.screenSize.y, vector3.y));
+                float num = (float)(2 - self.mapData.LayerOfRoom(room)) / 3f + Mathf.Lerp(self.lastDepth, self.depth, timeStacker) / 2f / 3f;
+                num = Mathf.Lerp(3.25f, 4.75f, num) / 4f;
+                Vector2 vector5 = vector4;
+                vector4 -= new Vector2(0.5f, 0.5f);
+                vector4 *= num;
+                vector4 += new Vector2(0.5f, 0.5f);
+                vector3 += new Vector2((vector4.x - vector5.x) * self.hud.rainWorld.screenSize.x, (vector4.y - vector5.y) * self.hud.rainWorld.screenSize.y);
+                result = vector3;
+            }
+            return result;
         }
 
         private static void Map_ResetReveal(On.HUD.Map.orig_ResetReveal orig, Map self)
@@ -47,6 +74,31 @@ namespace MiniMap
             }
             self.revealTexture.Apply();
             Shader.SetGlobalTexture("_mapFogTexture", self.revealTexture);
+
+            for (int k = 0; k < self.mapConnections.Count; k++)
+            {
+                IntVector2 intVector = IntVector2.FromVector2(self.OnTexturePos(self.mapConnections[k].posInRoomA.ToVector2() * 20f, self.mapConnections[k].roomA, true) / self.DiscoverResolution);
+                IntVector2 intVector2 = IntVector2.FromVector2(self.OnTexturePos(self.mapConnections[k].posInRoomB.ToVector2() * 20f, self.mapConnections[k].roomB, true) / self.DiscoverResolution);
+                if (self.discoverTexture.GetPixel(intVector.x, intVector.y).r > 0f && self.mapConnections[k].startRevealA < 0)
+                {
+                    self.mapConnections[k].startRevealA = 1;
+                    if (self.mapConnections[k].startRevealB < 0)
+                    {
+                        self.mapConnections[k].direction = 0f;
+                    }
+                }
+                if (self.discoverTexture.GetPixel(intVector2.x, intVector2.y).r > 0f)
+                {
+                    if (self.mapConnections[k].startRevealB < 0)
+                    {
+                        self.mapConnections[k].startRevealB = 1;
+                    }
+                    if (self.mapConnections[k].startRevealA < 0)
+                    {
+                        self.mapConnections[k].direction = 1f;
+                    }
+                }
+            }
         }
 
         private static void Map_Update_IL(ILContext il)
@@ -180,10 +232,14 @@ namespace MiniMap
 
         public float speedUp;
 
+        public float targetScale;
+        public float smoothScale;
+        public float lastScale;
+
         public int anyInputCounter = 0;
         public int currentViewDistance = 0;//0 - 2(2 included)
 
-        public Vector3 IdealBias => new Vector3(bias.x, bias.y, (int)(-MiniMapConfig.maxDistance * ((currentViewDistance  + 1) * 0.33f)));
+        public Vector3 IdealBias => new Vector3(bias.x, bias.y, 0f/*(int)(-MiniMapConfig.maxDistance * ((currentViewDistance + 1) * 0.33f))*/);
 
         public MapModule(Map map, HUD.HUD hud)
         {
@@ -195,6 +251,10 @@ namespace MiniMap
             replaceContainer = new FContainer();
             Futile.stage.AddChild(replaceContainer);
             replaceContainer.SetPosition(bias);
+
+            lastScale = 100f;
+            smoothScale = 100f;
+            targetScale = 100f;
         }
 
         public static void CheckAndSetupRenders()
@@ -207,11 +267,14 @@ namespace MiniMap
             {
                 var obj = new GameObject("MinimapCamera");
                 miniMapCamera = obj.AddComponent<Camera>();
+                miniMapCamera.orthographic = true;
+                //miniMapCamera.projectionMatrix = mainCamera.projectionMatrix;
             }
             if(rt == null)
             {
                 rt = new RenderTexture((int)MiniMapConfig.miniMapSize.x, (int)MiniMapConfig.miniMapSize.y, -10) { filterMode = FilterMode.Point};
                 miniMapCamera.targetTexture = rt;
+                miniMapCamera.orthographicSize = MiniMapConfig.minScale;
             }
 
             Vector3 delta = new Vector3(bias.x, bias.y, -500f);
@@ -233,12 +296,10 @@ namespace MiniMap
         public void ResetShaders(Map map)
         {
             if (map.slatedForDeletion) return;
-            for (int i = 0; i < map.mapSprites.Length; i++)
+            Plugin.Log("ResetShaders");
+            for (int i = 0; i < 3; i++)
             {
-                if (map.mapSprites[i].element.name.Contains("map_"))
-                {
-                    map.mapSprites[i].shader = map.hud.rainWorld.Shaders["FlatMap"];
-                }
+                map.mapSprites[i].shader = map.hud.rainWorld.Shaders["FlatMap"];
             }
 
             map.playerMarkerFade.RemoveFromContainer();
@@ -250,7 +311,7 @@ namespace MiniMap
         public void SetMapPanPos(Map map,Player player)
         {
             if (map.slatedForDeletion) return;
-            if (player != null && !player.inShortcut)
+            if (player != null && !player.inShortcut && map.discLoaded && map.mapLoaded)
             {
                 currentPlayerOnTexturePos = IntVector2.FromVector2(map.OnTexturePos(map.hud.owner.MapOwnerInRoomPosition, map.hud.owner.MapOwnerRoom, true) / map.DiscoverResolution);
                 if (lastPlayerOnTexturePos != currentPlayerOnTexturePos)
@@ -270,8 +331,10 @@ namespace MiniMap
                     }
                     map.revealTexture.Apply();
                     map.discoverTexture.Apply();
-                    lastPlayerOnTexturePos = currentPlayerOnTexturePos;
                     Shader.SetGlobalTexture("_mapFogTexture", map.revealTexture);
+
+                    Plugin.Log(currentPlayerOnTexturePos.ToString() + " : " + map.discoverTexture.GetPixel(currentPlayerOnTexturePos.x, currentPlayerOnTexturePos.y).ToString());
+                    
 
                     for (int k = 0; k < map.mapConnections.Count; k++)
                     {
@@ -297,10 +360,10 @@ namespace MiniMap
                             }
                         }
                     }
-
                 }
-               
-                if(map.hud.owner.MapInput.AnyDirectionalInput || map.hud.owner.MapInput.AnyInput || map.hud.owner.MapInput.mp)
+                lastPlayerOnTexturePos = currentPlayerOnTexturePos;
+
+                if (map.hud.owner.MapInput.AnyDirectionalInput || map.hud.owner.MapInput.AnyInput || map.hud.owner.MapInput.mp)
                 {
                     anyInputCounter = anyInputMaxCounter;
                 }
@@ -322,27 +385,9 @@ namespace MiniMap
                         panVel *= 0.8f;
                     }
 
-                    bool jmp = map.hud.owner.MapInput.jmp;
-                    bool thrw = map.hud.owner.MapInput.thrw;
                     bool mp = map.hud.owner.MapInput.mp;
                     bool pckp = map.hud.owner.MapInput.pckp;
 
-                    //if (jmp && !map.layerButtonA)
-                    //{
-                    //    map.layer--;
-                    //    if (map.layer < 0)
-                    //    {
-                    //        map.layer = 0;
-                    //    }
-                    //}
-                    //if (thrw && !map.layerButtonB)
-                    //{
-                    //    map.layer++;
-                    //    if (map.layer > 2)
-                    //    {
-                    //        map.layer = 2;
-                    //    }
-                    //}
                     if(mp && !lastMPdown)
                     {
                         MiniMapHUD.currentHoveringCorner++;
@@ -352,6 +397,7 @@ namespace MiniMap
                     {
                         currentViewDistance++;
                         if (currentViewDistance > 2) currentViewDistance = 0;
+                        targetScale = (1f + (float)currentViewDistance) * MiniMapConfig.minScale;
                     }
 
                     lastMPdown = mp;
@@ -363,9 +409,7 @@ namespace MiniMap
                 {
                     Vector2 vector = map.hud.owner.MapOwnerInRoomPosition;
                     int mapOwnerRoom = map.hud.owner.MapOwnerRoom;
-                    map.layer = map.mapData.LayerOfRoom(mapOwnerRoom);
-                    map.depth = (float)map.layer;
-                    //map.panPos = map.OnTexturePos(map.hud.owner.MapOwnerInRoomPosition, map.hud.owner.MapOwnerRoom, true);
+                    map.layer = map.mapData.LayerOfRoom(mapOwnerRoom);;
                     Vector2 vector2 = map.mapData.PositionOfRoom(mapOwnerRoom) / 3f;
                     vector -= new Vector2((float)map.mapData.SizeOfRoom(mapOwnerRoom).x * 20f, (float)map.mapData.SizeOfRoom(mapOwnerRoom).y * 20f) / 2f;
 
@@ -373,11 +417,16 @@ namespace MiniMap
                 }
 
                 smoothPanPos = Vector2.Lerp(lastPanPos, targetPanPos, 0.1f);
+                smoothScale = Mathf.Lerp(lastScale, targetScale, 0.1f);
+
                 if(miniMapCamera != null)
                 {
                     miniMapCamera.transform.position = mainCamera.transform.position + IdealBias;
+                    miniMapCamera.orthographicSize = smoothScale;
                 }
                 lastPanPos = smoothPanPos;
+                lastScale = smoothScale;
+
                 map.panPos = smoothPanPos;
             }
         }

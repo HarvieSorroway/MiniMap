@@ -12,7 +12,7 @@ namespace MiniMap
     public class MiniMapConfig : OptionInterface
     {
         public static Vector2 miniMapSize => new Vector2(MiniMapSize_X.Value, MiniMapSize_Y.Value);
-        public static float maxDistance => MaxDistance.Value;
+        public static float minScale => MinScale.Value;
 
         public static KeyCode LeftKey => left.Value;
         public static KeyCode RightKey => right.Value;
@@ -26,7 +26,7 @@ namespace MiniMap
 
         public static Configurable<float> MiniMapSize_X;
         public static Configurable<float> MiniMapSize_Y;
-        public static Configurable<float> MaxDistance;
+        public static Configurable<float> MinScale;
 
         public static Configurable<KeyCode> left;
         public static Configurable<KeyCode> right;
@@ -58,7 +58,7 @@ namespace MiniMap
         {
             MiniMapSize_X = config.Bind<float>("MiniMap_MiniMapSize_X", 300f);
             MiniMapSize_Y = config.Bind<float>("MiniMap_MiniMapSize_Y", 185f);
-            MaxDistance = config.Bind<float>("MiniMap_MaxDistance", 500f);
+            MinScale = config.Bind<float>("MiniMap_MinScale", 100f);
 
             left = config.Bind<KeyCode>("MiniMap_left", KeyCode.Keypad4);
             right = config.Bind<KeyCode>("MiniMap_right", KeyCode.Keypad6);
@@ -104,12 +104,12 @@ namespace MiniMap
                     verticalAlignment = OpLabel.LabelVAlignment.Center
                 },
 
-                new OpFloatSlider(MaxDistance,new Vector2(30f,550f - 60f - biasY), 200)
+                new OpFloatSlider(MinScale,new Vector2(30f,550f - 60f - biasY), 200)
                 {
-                    min = 300f,
-                    max = 900f
+                    min = 50f,
+                    max = 150f
                 },
-                new OpLabel(250f,550f - 60f - biasY,"Max MiniMap view distance (modify map scale)", false)
+                new OpLabel(250f,550f - 60f - biasY,"Min scale of map camera\n(bigger means map looks smaller, multiply 3 is max scale)", false)
                 {
                     verticalAlignment = OpLabel.LabelVAlignment.Center
                 },
